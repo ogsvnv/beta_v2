@@ -4,6 +4,14 @@
 
 ## Быстрый старт
 
+Запуск проекта через install-скрипт:
+
+```bash
+wget -O install.sh https://raw.githubusercontent.com/USER/REPO/main/install.sh
+chmod +x install.sh
+./install.sh
+```
+
 ```bash
 chmod +x scripts/*.sh
 ./scripts/setup.sh your-domain.com

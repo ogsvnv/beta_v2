@@ -1,0 +1,48 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "__VLESS_UUID__",
+            "flow": "xtls-rprx-vision",
+            "email": "default@xray.local"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "__REALITY_DEST__",
+          "xver": 0,
+          "serverNames": [
+            "__REALITY_SNI__"
+          ],
+          "privateKey": "__REALITY_PRIVATE_KEY__",
+          "shortIds": [
+            "__REALITY_SHORT_ID__"
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "blocked",
+      "protocol": "blackhole"
+    }
+  ]
+}

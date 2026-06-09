@@ -24,9 +24,12 @@ XHTTP_PATH="${XHTTP_PATH:-/xhttp}"
 GRPC_SERVICE_NAME="${GRPC_SERVICE_NAME:-beta}"
 CDN_WS_PATH="${CDN_WS_PATH:-/ray}"
 CDN_PORT="${CDN_PORT:-443}"
-LOGLEVEL="${LOGLEVEL:-info}"
-TELEGRAM_CHAT_ADMIN="${TELEGRAM_CHAT_ADMIN:-}"
-TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+INPUT_LOGLEVEL="${LOGLEVEL:-}"
+INPUT_TELEGRAM_CHAT_ADMIN="${TELEGRAM_CHAT_ADMIN:-}"
+INPUT_TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+LOGLEVEL="${INPUT_LOGLEVEL:-info}"
+TELEGRAM_CHAT_ADMIN="$INPUT_TELEGRAM_CHAT_ADMIN"
+TELEGRAM_BOT_TOKEN="$INPUT_TELEGRAM_BOT_TOKEN"
 BETA_PROJECT_DIR_HOST="${BETA_PROJECT_DIR_HOST:-/beta}"
 REALITY_ALERT_COOLDOWN_SECONDS="${REALITY_ALERT_COOLDOWN_SECONDS:-300}"
 REALITY_ALERT_STARTUP_TEST_ENABLED="${REALITY_ALERT_STARTUP_TEST_ENABLED:-1}"
@@ -38,6 +41,7 @@ Usage:
   install.sh --host example.com --grpc
   install.sh --host example.com --grpc-tls
   install.sh --host example.com --grpc --project-name beta
+  install.sh --host example.com --grpc --loglevel warning
 
 Modes:
   --tcp, --reality      MODE=1 VLESS TCP/RAW REALITY Vision
@@ -152,6 +156,21 @@ parse_args() {
         XUI_PORT="${2:-}"
         shift 2
         ;;
+      --loglevel)
+        LOGLEVEL="${2:-}"
+        INPUT_LOGLEVEL="$LOGLEVEL"
+        shift 2
+        ;;
+      --telegram-chat-admin)
+        TELEGRAM_CHAT_ADMIN="${2:-}"
+        INPUT_TELEGRAM_CHAT_ADMIN="$TELEGRAM_CHAT_ADMIN"
+        shift 2
+        ;;
+      --telegram-bot-token)
+        TELEGRAM_BOT_TOKEN="${2:-}"
+        INPUT_TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+        shift 2
+        ;;
       --repo-dir | --project-name)
         REPO_DIR="${2:-}"
         if [[ -z "$INPUT_VLESS_TAG" ]]; then
@@ -215,6 +234,58 @@ Select install mode:
 MENU
   MODE="$(prompt_value "Mode" "1")"
   mode_from_value "$MODE"
+}
+
+select_loglevel() {
+  local choice=""
+
+  if [[ -n "$INPUT_LOGLEVEL" ]]; then
+    case "$LOGLEVEL" in
+      debug | info | warning | error | none) return ;;
+      *)
+        echo "Invalid LOGLEVEL: $LOGLEVEL" >&2
+        echo "Use one of: debug, info, warning, error, none" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  cat <<'MENU'
+Select Xray log level:
+  1. info
+  2. warning
+  3. error
+  4. debug
+  5. none
+MENU
+  choice="$(prompt_value "LOGLEVEL" "1")"
+
+  case "$choice" in
+    1 | info) LOGLEVEL="info" ;;
+    2 | warning | warn) LOGLEVEL="warning" ;;
+    3 | error) LOGLEVEL="error" ;;
+    4 | debug) LOGLEVEL="debug" ;;
+    5 | none) LOGLEVEL="none" ;;
+    *)
+      echo "Unknown LOGLEVEL choice: $choice" >&2
+      exit 1
+      ;;
+  esac
+}
+
+ask_telegram_settings() {
+  if [[ -z "$INPUT_TELEGRAM_CHAT_ADMIN" ]]; then
+    TELEGRAM_CHAT_ADMIN="$(prompt_value "TELEGRAM_CHAT_ADMIN (empty to disable)" "")"
+  fi
+
+  if [[ -z "$INPUT_TELEGRAM_BOT_TOKEN" ]]; then
+    TELEGRAM_BOT_TOKEN="$(prompt_value "TELEGRAM_BOT_TOKEN (empty to disable)" "")"
+  fi
+}
+
+ask_optional_settings() {
+  select_loglevel
+  ask_telegram_settings
 }
 
 ensure_defaults() {
@@ -857,6 +928,7 @@ main() {
   cleanup_existing_install
   select_mode
   ensure_defaults
+  ask_optional_settings
   configure_firewall
   prepare_repo
   configure_project

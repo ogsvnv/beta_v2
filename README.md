@@ -26,6 +26,7 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 ```
 
 Установщик сначала проверит Docker, UFW и `vnstat`, а затем задаст вопросы о названии проекта/VLESS tag, домене/IP и режиме, если они не переданы через переменные окружения или аргументы. После этого он откроет SSH, порт выбранного режима и порт панели 3x-ui, склонирует проект, создаст конфиг и запустит контейнеры.
+Также установщик спросит `LOGLEVEL` из списка `info`, `warning`, `error`, `debug`, `none`, а затем `TELEGRAM_CHAT_ADMIN` и `TELEGRAM_BOT_TOKEN`.
 
 Если Docker ставится впервые, установщик добавит пользователя в группу `docker` и остановится. После этого выйдите из SSH-сессии, зайдите снова и повторите ту же команду установки. Это нужно, чтобы новая группа применилась к текущей shell-сессии.
 При повторном запуске установка Docker будет пропущена, если `docker compose` уже доступен.
@@ -45,6 +46,7 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc
 wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc-tls
 wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc --project-name beta
+wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc --loglevel warning
 ```
 
 Локальный запуск из уже скачанного репозитория:

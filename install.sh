@@ -47,6 +47,31 @@ Modes:
 EOF
 }
 
+prompt_value() {
+  local prompt="$1"
+  local default_value="${2:-}"
+  local answer=""
+
+  if [[ -r /dev/tty ]]; then
+    if [[ -n "$default_value" ]]; then
+      read -r -p "$prompt [$default_value]: " answer < /dev/tty
+      printf '%s\n' "${answer:-$default_value}"
+    else
+      read -r -p "$prompt: " answer < /dev/tty
+      printf '%s\n' "$answer"
+    fi
+    return
+  fi
+
+  if [[ -n "$default_value" ]]; then
+    printf '%s\n' "$default_value"
+    return
+  fi
+
+  echo "$prompt is required; pass it as an argument when running without a TTY" >&2
+  exit 1
+}
+
 mode_from_value() {
   case "${1,,}" in
     1 | tcp | raw | vision | reality | --tcp | --raw | --vision | --reality)
@@ -143,8 +168,7 @@ ask_project_name() {
     return
   fi
 
-  read -r -p "Project name / VLESS tag [beta]: " PROJECT_NAME
-  PROJECT_NAME="${PROJECT_NAME:-beta}"
+  PROJECT_NAME="$(prompt_value "Project name / VLESS tag" "beta")"
   REPO_DIR="$PROJECT_NAME"
   VLESS_TAG="$PROJECT_NAME"
 }
@@ -163,8 +187,8 @@ Select install mode:
   4. VLESS + WebSocket + CDN
   5. VLESS + gRPC + TLS + Caddy
 MENU
-  read -r -p "Mode [1]: " MODE
-  mode_from_value "${MODE:-1}"
+  MODE="$(prompt_value "Mode" "1")"
+  mode_from_value "$MODE"
 }
 
 ensure_defaults() {
@@ -179,13 +203,44 @@ ensure_defaults() {
   fi
 
   if [[ -z "$SERVER_HOST" ]]; then
-    read -r -p "Server host or IP/domain: " SERVER_HOST
+    SERVER_HOST="$(prompt_value "Server host or IP/domain")"
   fi
 
   if [[ -z "$SERVER_HOST" ]]; then
     echo "SERVER_HOST is required" >&2
     exit 1
   fi
+}
+
+current_session_has_group() {
+  local group_name="$1"
+  id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$group_name"
+}
+
+docker_is_installed() {
+  command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
+}
+
+require_docker_relogin_if_needed() {
+  sudo usermod -aG docker "$USER_NAME"
+  if id ogsvnv >/dev/null 2>&1; then
+    sudo usermod -aG docker ogsvnv
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]] || current_session_has_group docker; then
+    return
+  fi
+
+  cat <<EOF
+
+Docker installed and user '$USER_NAME' was added to the docker group.
+Log out, log back in, then run the installer again so this shell receives the new group.
+
+Example:
+  wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host $SERVER_HOST --mode $MODE --project-name $REPO_DIR
+
+EOF
+  exit 0
 }
 
 install_system() {
@@ -202,36 +257,37 @@ install_system() {
   echo "=============================="
   echo "[3/9] Installing Docker"
   echo "=============================="
-  sudo install -m 0755 -d /etc/apt/keyrings
+  if docker_is_installed; then
+    echo "Docker is already installed, skipping Docker package installation."
+  else
+    sudo install -m 0755 -d /etc/apt/keyrings
 
-  if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-      sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    sudo chmod a+r /etc/apt/keyrings/docker.gpg
-  fi
+    if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+        sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      sudo chmod a+r /etc/apt/keyrings/docker.gpg
+    fi
 
-  if [[ ! -f /etc/apt/sources.list.d/docker.list ]]; then
-    echo \
+    if [[ ! -f /etc/apt/sources.list.d/docker.list ]]; then
+      echo \
 "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
 https://download.docker.com/linux/ubuntu \
 $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-  fi
+        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    fi
 
-  sudo apt update
-  sudo apt install -y \
-    docker-ce \
-    docker-ce-cli \
-    containerd.io \
-    docker-buildx-plugin \
-    docker-compose-plugin
+    sudo apt update
+    sudo apt install -y \
+      docker-ce \
+      docker-ce-cli \
+      containerd.io \
+      docker-buildx-plugin \
+      docker-compose-plugin
+  fi
 
   sudo systemctl enable docker
   sudo systemctl start docker
-  if id ogsvnv >/dev/null 2>&1; then
-    sudo usermod -aG docker ogsvnv
-  fi
-  sudo usermod -aG docker "$USER_NAME"
+  require_docker_relogin_if_needed
 
   echo "=============================="
   echo "[4/9] Starting vnStat"
@@ -308,7 +364,7 @@ generate_uuid_and_keys() {
     fi
 
     if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" || "${FORCE_NEW_REALITY:-0}" == "1" ]]; then
-      REALITY_KEYS="$(sudo docker run --rm ghcr.io/xtls/xray-core:latest x25519)"
+      REALITY_KEYS="$(docker run --rm ghcr.io/xtls/xray-core:latest x25519)"
       REALITY_PRIVATE_KEY="$(printf '%s\n' "$REALITY_KEYS" | awk -F': ' '/PrivateKey|Private key/ {print $2; exit}')"
       REALITY_PUBLIC_KEY="$(printf '%s\n' "$REALITY_KEYS" | awk -F': ' '/PublicKey|Public key/ {print $2; exit}')"
 
@@ -632,7 +688,7 @@ start_compose() {
   echo "[8/9] Starting Docker Compose"
   echo "=============================="
   cd "$APP_DIR"
-  sudo docker compose up -d
+  docker compose up -d
 }
 
 print_link() {

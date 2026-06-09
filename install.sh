@@ -276,6 +276,8 @@ cleanup_existing_install() {
   echo "[0/9] Cleaning previous install"
   echo "=============================="
 
+  cd "$USER_HOME"
+
   if [[ -d "$APP_DIR" ]]; then
     if [[ -f "$APP_DIR/docker-compose.yml" ]]; then
       echo "Stopping old Docker Compose stack in $APP_DIR"
@@ -417,6 +419,8 @@ prepare_repo() {
   echo "=============================="
   echo "[6/9] Cloning/updating project"
   echo "=============================="
+  cd "$USER_HOME"
+
   if [[ -d "$APP_DIR/.git" ]]; then
     sudo -u "$USER_NAME" git -C "$APP_DIR" pull --ff-only
   elif [[ -e "$APP_DIR" ]]; then

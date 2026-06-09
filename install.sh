@@ -11,9 +11,14 @@ MODE="${MODE:-}"
 INPUT_XRAY_PORT="${XRAY_PORT:-}"
 XRAY_PORT="${INPUT_XRAY_PORT:-8443}"
 XUI_PORT="${XUI_PORT:-2053}"
+INPUT_XUI_USERNAME="${XUI_USERNAME:-}"
+INPUT_XUI_PASSWORD="${XUI_PASSWORD:-}"
+XUI_USERNAME="${INPUT_XUI_USERNAME:-admin}"
+XUI_PASSWORD="$INPUT_XUI_PASSWORD"
 VLESS_UUID="${VLESS_UUID:-}"
 VLESS_TAG="${INPUT_VLESS_TAG:-$REPO_DIR}"
 VLESS_EMAIL="${VLESS_EMAIL:-test@beta.local}"
+VLESS_SUB_ID="${VLESS_SUB_ID:-}"
 REALITY_SNI="${REALITY_SNI:-www.dropbox.com}"
 REALITY_DEST="${REALITY_DEST:-${REALITY_SNI}:443}"
 REALITY_FINGERPRINT="${REALITY_FINGERPRINT:-chrome}"
@@ -42,6 +47,7 @@ Usage:
   install.sh --host example.com --grpc-tls
   install.sh --host example.com --grpc --project-name beta
   install.sh --host example.com --grpc --loglevel warning
+  install.sh --host example.com --grpc --xui-username admin --xui-password secret
 
 Modes:
   --tcp, --reality      MODE=1 VLESS TCP/RAW REALITY Vision
@@ -154,6 +160,16 @@ parse_args() {
         ;;
       --xui-port)
         XUI_PORT="${2:-}"
+        shift 2
+        ;;
+      --xui-username)
+        XUI_USERNAME="${2:-}"
+        INPUT_XUI_USERNAME="$XUI_USERNAME"
+        shift 2
+        ;;
+      --xui-password)
+        XUI_PASSWORD="${2:-}"
+        INPUT_XUI_PASSWORD="$XUI_PASSWORD"
         shift 2
         ;;
       --loglevel)
@@ -283,7 +299,18 @@ ask_telegram_settings() {
   fi
 }
 
+ask_xui_admin_settings() {
+  if [[ -z "$INPUT_XUI_USERNAME" ]]; then
+    XUI_USERNAME="$(prompt_value "3x-ui admin login" "admin")"
+  fi
+
+  if [[ -z "$INPUT_XUI_PASSWORD" ]]; then
+    XUI_PASSWORD="$(prompt_value "3x-ui admin password (empty = auto-generate)" "")"
+  fi
+}
+
 ask_optional_settings() {
+  ask_xui_admin_settings
   select_loglevel
   ask_telegram_settings
 }
@@ -538,6 +565,14 @@ generate_uuid_and_keys() {
     else
       VLESS_UUID="$(cat /proc/sys/kernel/random/uuid)"
     fi
+  fi
+
+  if [[ -z "$VLESS_SUB_ID" ]]; then
+    VLESS_SUB_ID="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+  fi
+
+  if [[ -z "$XUI_PASSWORD" ]]; then
+    XUI_PASSWORD="$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
   fi
 
   if [[ "$XRAY_MODE" != "cdn-ws" && "$XRAY_MODE" != "grpc-tls" ]]; then
@@ -807,6 +842,189 @@ write_compose() {
   chmod 644 "$compose_file"
 }
 
+write_xui_inbound_payload() {
+  local payload_file="$APP_DIR/config/xui-inbound.json"
+  local inbound_port="443"
+  local client_flow=""
+  local stream_settings=""
+  mkdir -p "$APP_DIR/config"
+
+  case "$XRAY_MODE" in
+    tcp)
+      client_flow="xtls-rprx-vision"
+      stream_settings='{
+    "network": "tcp",
+    "tcpSettings": {
+      "header": {
+        "type": "none"
+      }
+    },
+    "security": "reality",
+    "realitySettings": {
+      "show": false,
+      "target": "'"$REALITY_DEST"'",
+      "xver": 0,
+      "serverNames": [
+        "'"$REALITY_SNI"'"
+      ],
+      "privateKey": "'"$REALITY_PRIVATE_KEY"'",
+      "minClientVer": "",
+      "maxClientVer": "",
+      "maxTimediff": 0,
+      "shortIds": [
+        "'"$REALITY_SHORT_ID"'"
+      ],
+      "settings": {
+        "publicKey": "'"$REALITY_PUBLIC_KEY"'",
+        "fingerprint": "'"$REALITY_FINGERPRINT"'",
+        "serverName": "",
+        "spiderX": "/",
+        "mldsa65Verify": ""
+      }
+    }
+  }'
+      ;;
+    xhttp)
+      stream_settings='{
+    "network": "xhttp",
+    "security": "reality",
+    "xhttpSettings": {
+      "path": "'"$XHTTP_PATH"'"
+    },
+    "realitySettings": {
+      "show": false,
+      "target": "'"$REALITY_DEST"'",
+      "xver": 0,
+      "serverNames": [
+        "'"$REALITY_SNI"'"
+      ],
+      "privateKey": "'"$REALITY_PRIVATE_KEY"'",
+      "minClientVer": "",
+      "maxClientVer": "",
+      "maxTimediff": 0,
+      "shortIds": [
+        "'"$REALITY_SHORT_ID"'"
+      ],
+      "settings": {
+        "publicKey": "'"$REALITY_PUBLIC_KEY"'",
+        "fingerprint": "'"$REALITY_FINGERPRINT"'",
+        "serverName": "",
+        "spiderX": "/",
+        "mldsa65Verify": ""
+      }
+    }
+  }'
+      ;;
+    grpc)
+      stream_settings='{
+    "network": "grpc",
+    "security": "reality",
+    "grpcSettings": {
+      "serviceName": "'"$GRPC_SERVICE_NAME"'",
+      "authority": "",
+      "multiMode": false
+    },
+    "realitySettings": {
+      "show": false,
+      "target": "'"$REALITY_DEST"'",
+      "xver": 0,
+      "serverNames": [
+        "'"$REALITY_SNI"'"
+      ],
+      "privateKey": "'"$REALITY_PRIVATE_KEY"'",
+      "minClientVer": "",
+      "maxClientVer": "",
+      "maxTimediff": 0,
+      "shortIds": [
+        "'"$REALITY_SHORT_ID"'"
+      ],
+      "settings": {
+        "publicKey": "'"$REALITY_PUBLIC_KEY"'",
+        "fingerprint": "'"$REALITY_FINGERPRINT"'",
+        "serverName": "",
+        "spiderX": "/",
+        "mldsa65Verify": ""
+      }
+    }
+  }'
+      ;;
+    cdn-ws)
+      inbound_port="10000"
+      stream_settings='{
+    "network": "ws",
+    "security": "none",
+    "wsSettings": {
+      "acceptProxyProtocol": false,
+      "path": "'"$CDN_WS_PATH"'",
+      "host": "'"$SERVER_HOST"'",
+      "headers": {},
+      "heartbeatPeriod": 0
+    }
+  }'
+      ;;
+    grpc-tls)
+      inbound_port="10000"
+      stream_settings='{
+    "network": "grpc",
+    "security": "none",
+    "grpcSettings": {
+      "serviceName": "'"$GRPC_SERVICE_NAME"'",
+      "authority": "",
+      "multiMode": false
+    }
+  }'
+      ;;
+  esac
+
+  cat > "$payload_file" <<EOF
+{
+  "up": 0,
+  "down": 0,
+  "total": 0,
+  "remark": "$VLESS_TAG",
+  "enable": true,
+  "expiryTime": 0,
+  "listen": "",
+  "port": $inbound_port,
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      {
+        "id": "$VLESS_UUID",
+        "flow": "$client_flow",
+        "email": "$VLESS_EMAIL",
+        "limitIp": 0,
+        "totalGB": 0,
+        "expiryTime": 0,
+        "enable": true,
+        "tgId": 0,
+        "subId": "$VLESS_SUB_ID",
+        "comment": "",
+        "reset": 0
+      }
+    ],
+    "decryption": "none",
+    "encryption": "none",
+    "fallbacks": []
+  },
+  "streamSettings": $stream_settings,
+  "tag": "inbound-$VLESS_TAG",
+  "sniffing": {
+    "enabled": true,
+    "destOverride": [
+      "http",
+      "tls",
+      "quic",
+      "fakedns"
+    ],
+    "metadataOnly": false,
+    "routeOnly": false
+  }
+}
+EOF
+  chmod 644 "$payload_file"
+}
+
 write_env() {
   cat > "$APP_DIR/.env" <<EOF
 SERVER_HOST=$SERVER_HOST
@@ -814,9 +1032,12 @@ MODE=$MODE
 XRAY_MODE=$XRAY_MODE
 XRAY_PORT=$XRAY_PORT
 XUI_PORT=$XUI_PORT
+XUI_USERNAME=$XUI_USERNAME
+XUI_PASSWORD=$XUI_PASSWORD
 VLESS_UUID=$VLESS_UUID
 VLESS_TAG=$VLESS_TAG
 VLESS_EMAIL=$VLESS_EMAIL
+VLESS_SUB_ID=$VLESS_SUB_ID
 REALITY_SNI=$REALITY_SNI
 REALITY_DEST=$REALITY_DEST
 REALITY_FINGERPRINT=$REALITY_FINGERPRINT
@@ -847,6 +1068,11 @@ print_generated_files() {
   echo "Generated config/xray.json:"
   echo "------------------------------"
   cat "$APP_DIR/config/xray.json"
+
+  echo
+  echo "Generated config/xui-inbound.json:"
+  echo "------------------------------"
+  cat "$APP_DIR/config/xui-inbound.json"
 
   if [[ -f "$APP_DIR/config/Caddyfile" && "$XRAY_MODE" == "grpc-tls" ]]; then
     echo
@@ -891,6 +1117,7 @@ configure_project() {
   echo "=============================="
   generate_uuid_and_keys
   write_xray_config
+  write_xui_inbound_payload
   write_compose
   write_env
   print_generated_files
@@ -905,9 +1132,110 @@ start_compose() {
   docker compose up -d
 }
 
+wait_for_xui_container() {
+  local attempt=0
+
+  until docker exec beta-3x-ui sh -c 'command -v x-ui >/dev/null 2>&1' >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    if [[ "$attempt" -ge 60 ]]; then
+      echo "3x-ui container is not ready" >&2
+      docker logs beta-3x-ui --tail 100 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+wait_for_xui_http() {
+  local url="http://127.0.0.1:${XUI_PORT}/csrf-token"
+  local attempt=0
+
+  until curl -fsS "$url" >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    if [[ "$attempt" -ge 60 ]]; then
+      echo "3x-ui HTTP API is not ready at $url" >&2
+      docker logs beta-3x-ui --tail 100 || true
+      exit 1
+    fi
+    sleep 2
+  done
+}
+
+configure_xui_credentials() {
+  echo "Configuring 3x-ui credentials..."
+  wait_for_xui_container
+  docker exec beta-3x-ui x-ui setting \
+    -username "$XUI_USERNAME" \
+    -password "$XUI_PASSWORD" \
+    -webBasePath "/" \
+    -port "$XUI_PORT" \
+    -listen "0.0.0.0" \
+    -resetTwoFactor
+  docker restart beta-3x-ui >/dev/null
+  wait_for_xui_http
+}
+
+json_get_obj_string() {
+  sed -n 's/.*"obj"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+create_xui_test_user() {
+  local cookie_file="$APP_DIR/.xui-cookie"
+  local csrf_response="$APP_DIR/.xui-csrf.json"
+  local login_response="$APP_DIR/.xui-login.json"
+  local add_response="$APP_DIR/.xui-add-inbound.json"
+  local csrf_token=""
+
+  echo "Creating test inbound/client in 3x-ui..."
+
+  curl -fsS -c "$cookie_file" "http://127.0.0.1:${XUI_PORT}/csrf-token" > "$csrf_response"
+  csrf_token="$(json_get_obj_string < "$csrf_response")"
+  if [[ -z "$csrf_token" ]]; then
+    echo "Failed to get 3x-ui CSRF token:" >&2
+    cat "$csrf_response" >&2
+    exit 1
+  fi
+
+  curl -fsS \
+    -b "$cookie_file" \
+    -c "$cookie_file" \
+    -H "X-CSRF-Token: $csrf_token" \
+    -d "username=$XUI_USERNAME" \
+    -d "password=$XUI_PASSWORD" \
+    -d "_csrf=$csrf_token" \
+    "http://127.0.0.1:${XUI_PORT}/login" > "$login_response"
+
+  if ! grep -q '"success"[[:space:]]*:[[:space:]]*true' "$login_response"; then
+    echo "3x-ui login failed:" >&2
+    cat "$login_response" >&2
+    exit 1
+  fi
+
+  curl -fsS \
+    -b "$cookie_file" \
+    -H "Content-Type: application/json" \
+    -H "X-CSRF-Token: $csrf_token" \
+    --data-binary "@$APP_DIR/config/xui-inbound.json" \
+    "http://127.0.0.1:${XUI_PORT}/panel/api/inbounds/add" > "$add_response"
+
+  if ! grep -q '"success"[[:space:]]*:[[:space:]]*true' "$add_response"; then
+    echo "3x-ui rejected test inbound:" >&2
+    cat "$add_response" >&2
+    exit 1
+  fi
+}
+
+configure_xui_test_user() {
+  echo "=============================="
+  echo "[9/10] Creating 3x-ui test user"
+  echo "=============================="
+  configure_xui_credentials
+  create_xui_test_user
+}
+
 print_link() {
   echo "=============================="
-  echo "[9/9] VLESS link"
+  echo "[10/10] VLESS link"
   echo "=============================="
   build_link
   echo "VLESS link:"
@@ -919,6 +1247,8 @@ print_link() {
   echo
   echo "3x-ui:"
   echo "http://${SERVER_HOST}:${XUI_PORT}/panel"
+  echo "  username: $XUI_USERNAME"
+  echo "  password: $XUI_PASSWORD"
 }
 
 main() {
@@ -933,6 +1263,7 @@ main() {
   prepare_repo
   configure_project
   start_compose
+  configure_xui_test_user
   print_link
 }
 

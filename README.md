@@ -26,7 +26,7 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 ```
 
 Установщик сначала проверит Docker, UFW и `vnstat`, а затем задаст вопросы о названии проекта/VLESS tag, домене/IP и режиме, если они не переданы через переменные окружения или аргументы. После этого он откроет SSH, порт выбранного режима и порт панели 3x-ui, склонирует проект, создаст конфиг и запустит контейнеры.
-Также установщик спросит `LOGLEVEL` из списка `info`, `warning`, `error`, `debug`, `none`, а затем `TELEGRAM_CHAT_ADMIN` и `TELEGRAM_BOT_TOKEN`.
+Также установщик спросит логин/пароль админа 3x-ui, `LOGLEVEL` из списка `info`, `warning`, `error`, `debug`, `none`, а затем `TELEGRAM_CHAT_ADMIN` и `TELEGRAM_BOT_TOKEN`.
 
 Если Docker ставится впервые, установщик добавит пользователя в группу `docker` и остановится. После этого выйдите из SSH-сессии, зайдите снова и повторите ту же команду установки. Это нужно, чтобы новая группа применилась к текущей shell-сессии.
 При повторном запуске установка Docker будет пропущена, если `docker compose` уже доступен.
@@ -47,6 +47,7 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc-tls
 wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc --project-name beta
 wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc --loglevel warning
+wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host example.com --grpc --xui-username admin --xui-password secret
 ```
 
 Локальный запуск из уже скачанного репозитория:
@@ -58,10 +59,11 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 ## Что создается
 
 - `.env` с `SERVER_HOST`, внешним `XRAY_PORT` и UUID клиента.
-- тестовый VLESS-клиент `test@beta.local`.
+- тестовый VLESS-клиент `test@beta.local` в `config/xray.json` и в 3x-ui.
 - `config/nginx.conf` с TCP-прокси для REALITY или HTTP/WebSocket reverse proxy для CDN-режима.
 - `config/Caddyfile` для режима gRPC + TLS через Caddy.
 - `config/xray.json` с inbound VLESS REALITY на внутреннем порту `443`, VLESS WebSocket на `10000` или VLESS gRPC h2c на `10000`.
+- `config/xui-inbound.json` с payload для создания тестового inbound/client в 3x-ui через API.
 - `docker-compose.yml`, скопированный из шаблона выбранного режима.
 - `compose/docker-compose.mode1-tcp-reality.yml`.
 - `compose/docker-compose.mode2-xhttp-reality.yml`.
@@ -83,7 +85,9 @@ docker compose down
 
 ## 3x-ui
 
-Во все варианты compose добавлен контейнер `beta-3x-ui` на образе `ghcr.io/mhsanaei/3x-ui:latest`. По умолчанию панель публикуется на порту `2053`:
+Во все варианты compose добавлен контейнер `beta-3x-ui` на образе `ghcr.io/mhsanaei/3x-ui:latest`. Установщик настраивает логин панели и создаёт тестовый inbound/client через API 3x-ui, поэтому пользователь `test@beta.local` виден в панели.
+
+По умолчанию панель публикуется на порту `2053`:
 
 ```text
 http://your-domain.com:2053/panel
@@ -95,7 +99,7 @@ http://your-domain.com:2053/panel
 XUI_PORT=3053 ./install.sh your-domain.com --tcp
 ```
 
-Данные панели сохраняются в Docker volumes `x-ui-data` и `x-ui-cert`.
+Данные панели сохраняются в Docker volumes `x-ui-data` и `x-ui-cert`. Логин и пароль панели выводятся в конце установки и сохраняются в `.env` как `XUI_USERNAME` и `XUI_PASSWORD`.
 
 ## Telegram alert
 

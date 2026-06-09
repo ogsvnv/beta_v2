@@ -1,0 +1,7 @@
+example.com {
+  encode zstd gzip
+
+  reverse_proxy /beta/Tun* h2c://xray:10000
+
+  respond "OK" 200
+}

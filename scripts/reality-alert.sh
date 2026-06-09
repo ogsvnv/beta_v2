@@ -4,9 +4,9 @@ set -eu
 : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
 : "${TELEGRAM_CHAT_ADMIN:?TELEGRAM_CHAT_ADMIN is required}"
 
-XRAY_CONTAINER="${XRAY_CONTAINER:-gamma-xray}"
-PROJECT_DIR="${GAMMA_PROJECT_DIR:-/gamma}"
-PROJECT_DIR_HOST="${GAMMA_PROJECT_DIR_HOST:-/gamma}"
+XRAY_CONTAINER="${XRAY_CONTAINER:-beta-xray}"
+PROJECT_DIR="${BETA_PROJECT_DIR:-/beta}"
+PROJECT_DIR_HOST="${BETA_PROJECT_DIR_HOST:-/beta}"
 ENV_FILE="${PROJECT_DIR}/.env"
 MATCH_PATTERN="${REALITY_ALERT_PATTERN:-REALITY: processed invalid connection}"
 MATCH_REASON_PATTERN="${REALITY_ALERT_REASON_PATTERN:-failed to read client hello}"
@@ -14,7 +14,7 @@ COOLDOWN_SECONDS="${REALITY_ALERT_COOLDOWN_SECONDS:-300}"
 LOG_SINCE="${REALITY_ALERT_LOG_SINCE:-0s}"
 LAST_ALERT_FILE="${REALITY_ALERT_LAST_ALERT_FILE:-/tmp/reality-alert-last}"
 STARTUP_TEST_ENABLED="${REALITY_ALERT_STARTUP_TEST_ENABLED:-1}"
-RESTART_JOB_IMAGE="${REALITY_ALERT_RESTART_JOB_IMAGE:-gamma-reality-alert:latest}"
+RESTART_JOB_IMAGE="${REALITY_ALERT_RESTART_JOB_IMAGE:-beta-reality-alert:latest}"
 
 send_telegram_message() {
   message="$1"
@@ -86,7 +86,7 @@ build_vless_link() {
       query="type=xhttp&path=${encoded_xhttp_path}"
       ;;
     3 | grpc)
-      query="type=grpc&serviceName=${GRPC_SERVICE_NAME:-home-xray}&mode=gun"
+      query="type=grpc&serviceName=${GRPC_SERVICE_NAME:-beta}&mode=gun"
       ;;
     4 | cdn | ws | cdn-ws | websocket)
       encoded_cdn_ws_path="$(printf '%s' "$cdn_ws_path" | sed 's|/|%2F|g')"
@@ -97,7 +97,7 @@ build_vless_link() {
         "${SERVER_HOST:-unknown}" \
         "$encoded_cdn_ws_path" \
         "${SERVER_HOST:-unknown}" \
-        "${VLESS_TAG:-home-xray}"
+        "${VLESS_TAG:-beta}"
       return
       ;;
     *)
@@ -114,17 +114,17 @@ build_vless_link() {
     "${REALITY_SNI:-www.dropbox.com}" \
     "${REALITY_PUBLIC_KEY:-unknown}" \
     "${REALITY_SHORT_ID:-unknown}" \
-    "${VLESS_TAG:-home-xray}"
+    "${VLESS_TAG:-beta}"
 }
 
 start_compose_restart_job() {
-  job_name="gamma-compose-restart-$(date +%s)"
+  job_name="beta-compose-restart-$(date +%s)"
 
   docker run -d --rm \
     --name "$job_name" \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    -v "${PROJECT_DIR_HOST}:/gamma" \
-    -w /gamma \
+    -v "${PROJECT_DIR_HOST}:/beta" \
+    -w /beta \
     --entrypoint sh \
     "$RESTART_JOB_IMAGE" \
     -lc 'docker compose down && docker compose up -d' >/dev/null

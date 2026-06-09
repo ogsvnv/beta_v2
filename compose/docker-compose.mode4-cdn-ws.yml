@@ -6,7 +6,7 @@ services:
     depends_on:
       - xray
     ports:
-      - "${XRAY_PORT:-8443}:8443/tcp"
+      - "${XRAY_PORT:-80}:8443/tcp"
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
 
@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
     command: ["run", "-config", "/etc/xray/config.json"]
     expose:
-      - "443"
+      - "10000"
     volumes:
       - ./config/xray.json:/etc/xray/config.json:ro
 

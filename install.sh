@@ -242,6 +242,10 @@ start_service_if_possible() {
   echo "No supported service manager found, skipping $service_name service start."
 }
 
+can_manage_iptables() {
+  command -v iptables >/dev/null 2>&1 && sudo iptables -w -L -n >/dev/null 2>&1
+}
+
 require_docker_relogin_if_needed() {
   sudo usermod -aG docker "$USER_NAME"
   if id ogsvnv >/dev/null 2>&1; then
@@ -325,6 +329,13 @@ configure_firewall() {
   echo "=============================="
   if ! command -v ufw >/dev/null 2>&1; then
     echo "UFW is not installed, skipping firewall configuration."
+    return
+  fi
+
+  if ! can_manage_iptables; then
+    echo "WARN: iptables is not available to this environment, skipping UFW configuration."
+    echo "WARN: This is common inside containers. On a VPS, run the installer with sudo-capable user privileges."
+    echo "WARN: Open the required ports in your VPS firewall/security group instead."
     return
   fi
 

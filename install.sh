@@ -55,10 +55,12 @@ prompt_value() {
 
   if [[ -r /dev/tty ]]; then
     if [[ -n "$default_value" ]]; then
-      read -r -p "$prompt [$default_value]: " answer < /dev/tty
+      printf '%s [%s]: ' "$prompt" "$default_value" > /dev/tty
+      read -r answer < /dev/tty
       printf '%s\n' "${answer:-$default_value}"
     else
-      read -r -p "$prompt: " answer < /dev/tty
+      printf '%s: ' "$prompt" > /dev/tty
+      read -r answer < /dev/tty
       printf '%s\n' "$answer"
     fi
     return
@@ -71,6 +73,29 @@ prompt_value() {
 
   echo "$prompt is required; pass it as an argument when running without a TTY" >&2
   exit 1
+}
+
+valid_server_host() {
+  local value="$1"
+
+  [[ -n "$value" ]] || return 1
+  [[ "$value" != "==============================" ]] || return 1
+  [[ "$value" =~ [[:alnum:]] ]] || return 1
+  [[ "$value" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
+  [[ "$value" != .* ]] || return 1
+  [[ "$value" != *..* ]] || return 1
+  [[ "$value" != *- ]] || return 1
+  [[ "$value" != -* ]] || return 1
+}
+
+ask_server_host() {
+  while true; do
+    SERVER_HOST="$(prompt_value "Server host or IP/domain")"
+    if valid_server_host "$SERVER_HOST"; then
+      return
+    fi
+    echo "Invalid host: '$SERVER_HOST'. Use a domain or IPv4 address, for example example.com or 192.168.1.108." > /dev/tty
+  done
 }
 
 mode_from_value() {
@@ -204,11 +229,11 @@ ensure_defaults() {
   fi
 
   if [[ -z "$SERVER_HOST" ]]; then
-    SERVER_HOST="$(prompt_value "Server host or IP/domain")"
+    ask_server_host
   fi
 
-  if [[ -z "$SERVER_HOST" ]]; then
-    echo "SERVER_HOST is required" >&2
+  if ! valid_server_host "$SERVER_HOST"; then
+    echo "Invalid SERVER_HOST: '$SERVER_HOST'" >&2
     exit 1
   fi
 }

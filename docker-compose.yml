@@ -22,8 +22,34 @@ services:
     command: ["run", "-config", "/etc/xray/config.json"]
     expose:
       - "443"
+      - "10000"
     volumes:
       - ./config/xray.json:/etc/xray/config.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  reality-alert:
+    build:
+      context: .
+      dockerfile: Dockerfile.reality-alert
+    container_name: gamma-reality-alert
+    restart: unless-stopped
+    depends_on:
+      - xray
+    env_file:
+      - .env
+    environment:
+      XRAY_CONTAINER: gamma-xray
+      GAMMA_PROJECT_DIR: /gamma
+      GAMMA_PROJECT_DIR_HOST: "${GAMMA_PROJECT_DIR_HOST:-/gamma}"
+      REALITY_ALERT_COOLDOWN_SECONDS: "${REALITY_ALERT_COOLDOWN_SECONDS:-300}"
+      REALITY_ALERT_STARTUP_TEST_ENABLED: "${REALITY_ALERT_STARTUP_TEST_ENABLED:-1}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${GAMMA_PROJECT_DIR_HOST:-.}:/gamma
     logging:
       driver: json-file
       options:

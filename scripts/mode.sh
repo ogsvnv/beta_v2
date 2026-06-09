@@ -21,12 +21,13 @@ Select Xray mode:
   1. VLESS + TCP/RAW + REALITY + Vision
   2. VLESS + XHTTP + REALITY
   3. VLESS + gRPC + REALITY
+  4. VLESS + WebSocket + CDN
 MENU
 
-read -r -p "Mode [1-3]: " MODE
+read -r -p "Mode [1-4]: " MODE
 
 case "$MODE" in
-  1 | 2 | 3) ;;
+  1 | 2 | 3 | 4) ;;
   *)
     echo "Unknown mode: $MODE" >&2
     exit 1

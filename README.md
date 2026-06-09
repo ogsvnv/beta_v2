@@ -1,16 +1,8 @@
 # Xray VLESS Docker Compose
 
-Минимальный Xray-сервер в Docker Compose с Nginx TCP-прокси и управляемыми режимами VLESS REALITY.
+Минимальный Xray-сервер в Docker Compose с Nginx-прокси и управляемыми режимами VLESS REALITY или CDN/WebSocket.
 
 ## Быстрый старт
-
-Запуск проекта через install-скрипт:
-
-```bash
-wget -O install.sh https://raw.githubusercontent.com/USER/REPO/main/install.sh
-chmod +x install.sh
-./install.sh
-```
 
 ```bash
 chmod +x scripts/*.sh
@@ -32,8 +24,8 @@ SERVER_HOST=your-domain.com MODE=1 ./scripts/start.sh
 ## Что создается
 
 - `.env` с `SERVER_HOST`, внешним `XRAY_PORT` и UUID клиента.
-- `config/nginx.conf` с TCP-прокси с внешнего порта `8443` на Xray.
-- `config/xray.json` с inbound VLESS REALITY на внутреннем порту `443`.
+- `config/nginx.conf` с TCP-прокси для REALITY или HTTP/WebSocket reverse proxy для CDN-режима.
+- `config/xray.json` с inbound VLESS REALITY на внутреннем порту `443` или VLESS WebSocket на `10000`.
 - VLESS-ссылка для выбранного режима.
 - REALITY private/public keypair и short id.
 
@@ -46,6 +38,30 @@ docker compose down
 ./scripts/link.sh
 ```
 
+## Telegram alert
+
+В compose добавлен контейнер `gamma-reality-alert`. Он читает логи `gamma-xray` и при строке вида `REALITY: processed invalid connection ... failed to read client hello` отправляет сообщение в Telegram.
+
+Добавьте в `.env`:
+
+```env
+TELEGRAM_CHAT_ADMIN=-1001234567890
+TELEGRAM_BOT_TOKEN=1234567890:replace-with-token
+GAMMA_PROJECT_DIR_HOST=/gamma
+REALITY_ALERT_COOLDOWN_SECONDS=300
+REALITY_ALERT_STARTUP_TEST_ENABLED=1
+```
+
+`REALITY_ALERT_COOLDOWN_SECONDS=300` означает, что логи отслеживаются постоянно, но сообщение отправляется не чаще одного раза в 5 минут.
+`REALITY_ALERT_STARTUP_TEST_ENABLED=1` включает тестовое сообщение при старте alert-контейнера, например после перезапуска сервера.
+При `failed to read client hello` alert-контейнер меняет `XRAY_PORT` на случайный порт `50000-59999`, отправляет новый `vless://` в Telegram и запускает `docker compose down && docker compose up -d` в каталоге `GAMMA_PROJECT_DIR_HOST`.
+
+После изменения `.env` перезапустите alert-контейнер:
+
+```bash
+docker compose up -d --build reality-alert
+```
+
 ## Режимы
 
 Режим выбирается в `.env`:
@@ -54,7 +70,7 @@ docker compose down
 MODE=1
 ```
 
-Доступны три значения.
+Доступны четыре значения.
 
 ### MODE=1
 
@@ -104,6 +120,36 @@ GRPC_SERVICE_NAME=home-xray
 type=grpc&serviceName=home-xray&mode=gun&security=reality
 ```
 
+### MODE=4
+
+VLESS + WebSocket + CDN.
+
+Этот режим предназначен для домена, который проксируется через CDN, например Cloudflare. В отличие от `MODE=1/2/3`, здесь не используется REALITY: CDN принимает обычный HTTPS/WebSocket трафик на своем edge, затем отправляет WebSocket-запрос на VPS. Поэтому клиентская ссылка использует `security=tls&type=ws`, а не `security=reality`.
+
+По умолчанию используется путь:
+
+```env
+CDN_WS_PATH=/ray
+```
+
+Клиентский порт CDN:
+
+```env
+CDN_PORT=443
+```
+
+Origin-порт на VPS по умолчанию для свежей установки `MODE=4`:
+
+```env
+XRAY_PORT=80
+```
+
+Ссылка содержит:
+
+```text
+type=ws&host=proxy.example.com&path=%2Fray&security=tls&sni=proxy.example.com
+```
+
 Интерактивное переключение:
 
 ```bash
@@ -116,6 +162,7 @@ type=grpc&serviceName=home-xray&mode=gun&security=reality
 ./scripts/setup.sh your-domain.com 1
 ./scripts/setup.sh your-domain.com 2
 ./scripts/setup.sh your-domain.com 3
+./scripts/setup.sh proxy.example.com 4
 ```
 
 После ручного изменения `MODE` в `.env` пересоздайте конфиг и перезапустите контейнеры:
@@ -145,6 +192,8 @@ docker compose up -d
 ```
 
 Откройте выбранный TCP-порт, например `8443/tcp`, в firewall/security group сервера.
+
+Для `MODE=4` обычно открывается `80/tcp` на VPS, потому что Cloudflare принимает HTTPS на `443`, а к origin может ходить по HTTP на `80`. Клиент при этом подключается к `proxy.example.com:443`.
 
 ## REALITY параметры
 
@@ -179,3 +228,147 @@ FORCE_NEW_REALITY=1 ./scripts/setup.sh your-domain.com
 ## Важно
 
 Nginx здесь работает как TCP passthrough-прокси. TLS/REALITY обрабатывает Xray, поэтому обычный HTTP reverse proxy для этого конфига не подойдет.
+
+Для `MODE=4` наоборот используется обычный HTTP/WebSocket reverse proxy в Nginx. REALITY-параметры в клиентской ссылке не используются.
+
+## Настройка CDN-режима через Cloudflare
+
+Ниже пример для домена `example.com` и поддомена `proxy.example.com`.
+
+### 1. Подключите домен к Cloudflare
+
+1. Зайдите в Cloudflare.
+2. Нажмите `Add a domain` / `Add site`.
+3. Добавьте основной домен:
+
+```text
+example.com
+```
+
+4. Cloudflare покажет два nameserver'а.
+5. Откройте панель регистратора, где покупали домен.
+6. Замените nameserver'ы домена на те, которые дал Cloudflare.
+7. Дождитесь статуса `Active` в Cloudflare.
+
+### 2. Добавьте DNS-запись
+
+Откройте:
+
+```text
+Websites -> example.com -> DNS -> Records -> Add record
+```
+
+Добавьте запись:
+
+```text
+Type: A
+Name: proxy
+IPv4 address: IP_ВАШЕГО_VPS
+Proxy status: Proxied
+TTL: Auto
+```
+
+Важно: статус должен быть `Proxied`, оранжевое облако. Если стоит `DNS only`, трафик пойдет напрямую на VPS, без CDN.
+
+### 3. Включите WebSocket в Cloudflare
+
+Откройте:
+
+```text
+Websites -> example.com -> Network
+```
+
+Проверьте, что `WebSockets` включены. Обычно они включены по умолчанию.
+
+### 4. Настройте SSL/TLS в Cloudflare
+
+Для простого запуска с текущим `MODE=4`:
+
+```text
+Websites -> example.com -> SSL/TLS -> Overview -> Flexible
+```
+
+В этом варианте клиент подключается к Cloudflare по HTTPS на `443`, а Cloudflare подключается к VPS по HTTP на `80`.
+
+Если хотите режим `Full`, понадобится добавить TLS-сертификат на origin nginx и поменять compose/nginx на HTTPS origin. В текущей конфигурации `MODE=4` рассчитан на простой HTTP origin за Cloudflare.
+
+### 5. Запустите сервер в MODE=4
+
+На чистом VPS:
+
+```bash
+SERVER_HOST=proxy.example.com MODE=4 ./scripts/start.sh
+```
+
+Если проект уже установлен:
+
+```bash
+./scripts/setup.sh proxy.example.com 4
+docker compose up -d
+./scripts/link.sh
+```
+
+Для явного указания origin-порта:
+
+```bash
+XRAY_PORT=80 ./scripts/setup.sh proxy.example.com 4
+docker compose up -d
+./scripts/link.sh
+```
+
+### 6. Откройте firewall
+
+Для `MODE=4` откройте на VPS:
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw reload
+```
+
+Если у VPS есть security group у провайдера, там тоже должен быть открыт `80/tcp`.
+
+Порт `443/tcp` на VPS для этого варианта не обязателен: `443` принимает Cloudflare.
+
+### 7. Проверьте ссылку
+
+Команда:
+
+```bash
+./scripts/link.sh
+```
+
+Должна выдать ссылку вида:
+
+```text
+vless://uuid@proxy.example.com:443?type=ws&host=proxy.example.com&path=%2Fray&security=tls&sni=proxy.example.com#home-xray
+```
+
+В клиенте должны быть параметры:
+
+```text
+Address: proxy.example.com
+Port: 443
+UUID: из .env
+Transport: ws / websocket
+Path: /ray
+Host: proxy.example.com
+TLS: enabled
+SNI: proxy.example.com
+Security: none внутри VLESS, TLS снаружи
+```
+
+### 8. Частые ошибки
+
+Если клиент не подключается:
+
+- Проверьте, что DNS-запись `proxy` в Cloudflare имеет статус `Proxied`.
+- Проверьте, что `SSL/TLS` mode в Cloudflare установлен в `Flexible`.
+- Проверьте, что в Cloudflare включены `WebSockets`.
+- Проверьте, что на VPS открыт `80/tcp`.
+- Проверьте, что в клиенте путь точно совпадает с `CDN_WS_PATH`, по умолчанию `/ray`.
+- Перезапустите контейнеры после изменения режима:
+
+```bash
+docker compose down
+docker compose up -d
+```

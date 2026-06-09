@@ -1,0 +1,8 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache curl docker-cli docker-cli-compose
+
+COPY scripts/reality-alert.sh /usr/local/bin/reality-alert.sh
+RUN chmod +x /usr/local/bin/reality-alert.sh
+
+ENTRYPOINT ["/usr/local/bin/reality-alert.sh"]

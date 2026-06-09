@@ -213,6 +213,28 @@ ensure_defaults() {
   fi
 }
 
+detect_app_dir() {
+  if [[ -z "$USER_NAME" ]]; then
+    echo "USER_NAME is required" >&2
+    exit 1
+  fi
+
+  USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+  if [[ -z "$USER_HOME" ]]; then
+    echo "Cannot detect home directory for user: $USER_NAME" >&2
+    exit 1
+  fi
+
+  APP_DIR="$USER_HOME/$REPO_DIR"
+
+  case "$APP_DIR" in
+    "" | "/" | "$USER_HOME")
+      echo "Refusing to use unsafe project directory: $APP_DIR" >&2
+      exit 1
+      ;;
+  esac
+}
+
 current_session_has_group() {
   local group_name="$1"
   id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$group_name"
@@ -245,6 +267,37 @@ start_service_if_possible() {
 
 can_manage_iptables() {
   command -v iptables >/dev/null 2>&1 && sudo iptables -w -L -n >/dev/null 2>&1
+}
+
+cleanup_existing_install() {
+  detect_app_dir
+
+  echo "=============================="
+  echo "[0/9] Cleaning previous install"
+  echo "=============================="
+
+  if [[ -d "$APP_DIR" ]]; then
+    if [[ -f "$APP_DIR/docker-compose.yml" ]]; then
+      echo "Stopping old Docker Compose stack in $APP_DIR"
+      (cd "$APP_DIR" && docker compose down -v --remove-orphans) || true
+    fi
+
+    echo "Removing old project directory: $APP_DIR"
+    rm -rf "$APP_DIR"
+  else
+    echo "No previous project directory found: $APP_DIR"
+  fi
+
+  echo "Removing old beta containers if they exist"
+  docker rm -f \
+    beta-nginx \
+    beta-caddy \
+    beta-xray \
+    beta-3x-ui \
+    beta-reality-alert >/dev/null 2>&1 || true
+
+  echo "Pruning unused Docker resources"
+  docker system prune -af --volumes || true
 }
 
 require_docker_relogin_if_needed() {
@@ -359,18 +412,7 @@ configure_firewall() {
 }
 
 prepare_repo() {
-  if [[ -z "$USER_NAME" ]]; then
-    echo "USER_NAME is required" >&2
-    exit 1
-  fi
-
-  USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
-  if [[ -z "$USER_HOME" ]]; then
-    echo "Cannot detect home directory for user: $USER_NAME" >&2
-    exit 1
-  fi
-
-  APP_DIR="$USER_HOME/$REPO_DIR"
+  detect_app_dir
 
   echo "=============================="
   echo "[6/9] Cloning/updating project"
@@ -783,6 +825,7 @@ main() {
   parse_args "$@"
   install_system
   ask_project_name
+  cleanup_existing_install
   select_mode
   ensure_defaults
   configure_firewall

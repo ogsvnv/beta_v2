@@ -1,7 +1,7 @@
 example.com {
   encode zstd gzip
 
-  reverse_proxy /beta/Tun* h2c://xray:10000
+  reverse_proxy /beta/Tun* h2c://beta-3x-ui:10000
 
   respond "OK" 200
 }

@@ -396,7 +396,7 @@ cleanup_existing_install() {
   detect_app_dir
 
   echo "=============================="
-  echo "[0/9] Cleaning previous install"
+  echo "[0/10] Cleaning previous install"
   echo "=============================="
 
   cd "$USER_HOME"
@@ -449,17 +449,17 @@ EOF
 
 install_system() {
   echo "=============================="
-  echo "[1/9] Updating apt index"
+  echo "[1/10] Updating apt index"
   echo "=============================="
   sudo apt update
 
   echo "=============================="
-  echo "[2/9] Installing base packages"
+  echo "[2/10] Installing base packages"
   echo "=============================="
   sudo apt install -y ca-certificates curl gnupg git ufw vnstat
 
   echo "=============================="
-  echo "[3/9] Installing Docker"
+  echo "[3/10] Installing Docker"
   echo "=============================="
   if docker_is_installed; then
     echo "Docker is already installed, skipping Docker package installation."
@@ -493,7 +493,7 @@ $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
   require_docker_relogin_if_needed
 
   echo "=============================="
-  echo "[4/9] Starting vnStat"
+  echo "[4/10] Starting vnStat"
   echo "=============================="
   start_service_if_possible vnstat
   if has_systemd; then
@@ -504,7 +504,7 @@ $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
 
 configure_firewall() {
   echo "=============================="
-  echo "[5/9] Configuring firewall"
+  echo "[5/10] Configuring firewall"
   echo "=============================="
   if ! command -v ufw >/dev/null 2>&1; then
     echo "UFW is not installed, skipping firewall configuration."
@@ -540,7 +540,7 @@ prepare_repo() {
   detect_app_dir
 
   echo "=============================="
-  echo "[6/9] Cloning/updating project"
+  echo "[6/10] Cloning/updating project"
   echo "=============================="
   cd "$USER_HOME"
 
@@ -595,235 +595,6 @@ generate_uuid_and_keys() {
       fi
     fi
   fi
-}
-
-write_xray_config() {
-  local config_file="$APP_DIR/config/xray.json"
-  local nginx_file="$APP_DIR/config/nginx.conf"
-  local caddy_file="$APP_DIR/config/Caddyfile"
-  mkdir -p "$APP_DIR/config"
-
-  if [[ "$XRAY_MODE" == "cdn-ws" ]]; then
-    cat > "$config_file" <<EOF
-{
-  "log": {
-    "loglevel": "$LOGLEVEL"
-  },
-  "inbounds": [
-    {
-      "tag": "vless-cdn-ws",
-      "port": 10000,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$VLESS_UUID",
-            "email": "$VLESS_EMAIL"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "$CDN_WS_PATH"
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "tag": "direct",
-      "protocol": "freedom"
-    },
-    {
-      "tag": "blocked",
-      "protocol": "blackhole"
-    }
-  ]
-}
-EOF
-
-    cat > "$nginx_file" <<EOF
-worker_processes auto;
-
-events {
-  worker_connections 1024;
-}
-
-http {
-  server {
-    listen 8443;
-
-    location $CDN_WS_PATH {
-      proxy_pass http://xray:10000;
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade \$http_upgrade;
-      proxy_set_header Connection "upgrade";
-      proxy_set_header Host \$host;
-      proxy_read_timeout 1h;
-      proxy_send_timeout 1h;
-    }
-
-    location / {
-      return 404;
-    }
-  }
-}
-EOF
-  elif [[ "$XRAY_MODE" == "grpc-tls" ]]; then
-    cat > "$config_file" <<EOF
-{
-  "log": {
-    "loglevel": "$LOGLEVEL"
-  },
-  "inbounds": [
-    {
-      "tag": "vless-grpc-tls",
-      "port": 10000,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$VLESS_UUID",
-            "email": "$VLESS_EMAIL"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "security": "none",
-        "grpcSettings": {
-          "serviceName": "$GRPC_SERVICE_NAME"
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "tag": "direct",
-      "protocol": "freedom"
-    },
-    {
-      "tag": "blocked",
-      "protocol": "blackhole"
-    }
-  ]
-}
-EOF
-
-    cat > "$caddy_file" <<EOF
-$SERVER_HOST {
-  encode zstd gzip
-
-  reverse_proxy /$GRPC_SERVICE_NAME/Tun* h2c://xray:10000
-
-  respond "OK" 200
-}
-EOF
-  else
-    local client_flow_line=""
-    local transport_settings=""
-
-    case "$XRAY_MODE" in
-      tcp)
-        client_flow_line='            "flow": "xtls-rprx-vision",'
-        transport_settings='        "network": "tcp",
-        "security": "reality",'
-        ;;
-      xhttp)
-        transport_settings='        "network": "xhttp",
-        "security": "reality",
-        "xhttpSettings": {
-          "path": "'"$XHTTP_PATH"'"
-        },'
-        ;;
-      grpc)
-        transport_settings='        "network": "grpc",
-        "security": "reality",
-        "grpcSettings": {
-          "serviceName": "'"$GRPC_SERVICE_NAME"'"
-        },'
-        ;;
-    esac
-
-    cat > "$config_file" <<EOF
-{
-  "log": {
-    "loglevel": "$LOGLEVEL"
-  },
-  "inbounds": [
-    {
-      "tag": "vless-in",
-      "port": 443,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$VLESS_UUID",
-$client_flow_line
-            "email": "$VLESS_EMAIL"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-$transport_settings
-        "realitySettings": {
-          "show": false,
-          "target": "$REALITY_DEST",
-          "xver": 0,
-          "serverNames": [
-            "$REALITY_SNI"
-          ],
-          "privateKey": "$REALITY_PRIVATE_KEY",
-          "shortIds": [
-            "$REALITY_SHORT_ID"
-          ]
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "tag": "direct",
-      "protocol": "freedom"
-    },
-    {
-      "tag": "blocked",
-      "protocol": "blackhole"
-    }
-  ]
-}
-EOF
-
-    cat > "$nginx_file" <<EOF
-worker_processes auto;
-
-events {
-  worker_connections 1024;
-}
-
-stream {
-  upstream xray_vless {
-    server xray:443;
-  }
-
-  server {
-    listen 8443;
-    proxy_pass xray_vless;
-    proxy_connect_timeout 10s;
-    proxy_timeout 1h;
-  }
-}
-EOF
-  fi
-
-  chmod 644 "$config_file"
-  [[ -f "$nginx_file" ]] && chmod 644 "$nginx_file"
-  [[ -f "$caddy_file" ]] && chmod 644 "$caddy_file"
 }
 
 write_compose() {
@@ -1025,6 +796,127 @@ EOF
   chmod 644 "$payload_file"
 }
 
+write_proxy_config() {
+  local caddy_file="$APP_DIR/config/Caddyfile"
+  mkdir -p "$APP_DIR/config"
+
+  if [[ "$XRAY_MODE" != "grpc-tls" ]]; then
+    return
+  fi
+
+  cat > "$caddy_file" <<EOF
+$SERVER_HOST {
+  encode zstd gzip
+
+  reverse_proxy /$GRPC_SERVICE_NAME/Tun* h2c://beta-3x-ui:10000
+
+  respond "OK" 200
+}
+EOF
+  chmod 644 "$caddy_file"
+}
+
+write_xui_xray_template() {
+  local template_file="$APP_DIR/config/xui-xray-template.json"
+  mkdir -p "$APP_DIR/config"
+
+  cat > "$template_file" <<EOF
+{
+  "api": {
+    "services": [
+      "HandlerService",
+      "LoggerService",
+      "StatsService"
+    ],
+    "tag": "api"
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 62789,
+      "protocol": "tunnel",
+      "settings": {
+        "rewriteAddress": "127.0.0.1"
+      },
+      "tag": "api"
+    }
+  ],
+  "log": {
+    "access": "none",
+    "dnsLog": false,
+    "error": "",
+    "loglevel": "$LOGLEVEL",
+    "maskAddress": ""
+  },
+  "metrics": {
+    "listen": "127.0.0.1:11111",
+    "tag": "metrics_out"
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "AsIs",
+        "finalRules": [
+          {
+            "action": "allow"
+          }
+        ]
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "settings": {},
+      "tag": "blocked"
+    }
+  ],
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserDownlink": true,
+        "statsUserUplink": true
+      }
+    },
+    "system": {
+      "statsInboundDownlink": true,
+      "statsInboundUplink": true,
+      "statsOutboundDownlink": false,
+      "statsOutboundUplink": false
+    }
+  },
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api",
+        "type": "field"
+      },
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "blocked",
+        "type": "field"
+      },
+      {
+        "outboundTag": "blocked",
+        "protocol": [
+          "bittorrent"
+        ],
+        "type": "field"
+      }
+    ]
+  },
+  "stats": {}
+}
+EOF
+  chmod 644 "$template_file"
+}
+
 write_env() {
   cat > "$APP_DIR/.env" <<EOF
 SERVER_HOST=$SERVER_HOST
@@ -1065,25 +957,20 @@ print_generated_files() {
   cat "$APP_DIR/.env"
 
   echo
-  echo "Generated config/xray.json:"
-  echo "------------------------------"
-  cat "$APP_DIR/config/xray.json"
-
-  echo
   echo "Generated config/xui-inbound.json:"
   echo "------------------------------"
   cat "$APP_DIR/config/xui-inbound.json"
+
+  echo
+  echo "Generated config/xui-xray-template.json:"
+  echo "------------------------------"
+  cat "$APP_DIR/config/xui-xray-template.json"
 
   if [[ -f "$APP_DIR/config/Caddyfile" && "$XRAY_MODE" == "grpc-tls" ]]; then
     echo
     echo "Generated config/Caddyfile:"
     echo "------------------------------"
     cat "$APP_DIR/config/Caddyfile"
-  elif [[ -f "$APP_DIR/config/nginx.conf" ]]; then
-    echo
-    echo "Generated config/nginx.conf:"
-    echo "------------------------------"
-    cat "$APP_DIR/config/nginx.conf"
   fi
 
   echo
@@ -1113,11 +1000,12 @@ build_link() {
 
 configure_project() {
   echo "=============================="
-  echo "[7/9] Creating config"
+  echo "[7/10] Creating config"
   echo "=============================="
   generate_uuid_and_keys
-  write_xray_config
   write_xui_inbound_payload
+  write_xui_xray_template
+  write_proxy_config
   write_compose
   write_env
   print_generated_files
@@ -1126,7 +1014,7 @@ configure_project() {
 
 start_compose() {
   echo "=============================="
-  echo "[8/9] Starting Docker Compose"
+  echo "[8/10] Starting Docker Compose"
   echo "=============================="
   cd "$APP_DIR"
   docker compose up -d
@@ -1162,15 +1050,27 @@ wait_for_xui_http() {
 }
 
 configure_xui_credentials() {
+  local attempt=0
+
   echo "Configuring 3x-ui credentials..."
   wait_for_xui_container
-  docker exec beta-3x-ui x-ui setting \
-    -username "$XUI_USERNAME" \
-    -password "$XUI_PASSWORD" \
-    -webBasePath "/" \
-    -port "$XUI_PORT" \
-    -listen "0.0.0.0" \
-    -resetTwoFactor
+
+  until docker exec beta-3x-ui x-ui setting \
+      -username "$XUI_USERNAME" \
+      -password "$XUI_PASSWORD" \
+      -webBasePath "/" \
+      -port "2053" \
+      -listen "0.0.0.0" \
+      -resetTwoFactor; do
+    attempt=$((attempt + 1))
+    if [[ "$attempt" -ge 30 ]]; then
+      echo "Failed to configure 3x-ui credentials" >&2
+      docker logs beta-3x-ui --tail 100 || true
+      exit 1
+    fi
+    sleep 2
+  done
+
   docker restart beta-3x-ui >/dev/null
   wait_for_xui_http
 }
@@ -1183,6 +1083,7 @@ create_xui_test_user() {
   local cookie_file="$APP_DIR/.xui-cookie"
   local csrf_response="$APP_DIR/.xui-csrf.json"
   local login_response="$APP_DIR/.xui-login.json"
+  local xray_update_response="$APP_DIR/.xui-xray-update.json"
   local add_response="$APP_DIR/.xui-add-inbound.json"
   local csrf_token=""
 
@@ -1200,14 +1101,27 @@ create_xui_test_user() {
     -b "$cookie_file" \
     -c "$cookie_file" \
     -H "X-CSRF-Token: $csrf_token" \
-    -d "username=$XUI_USERNAME" \
-    -d "password=$XUI_PASSWORD" \
-    -d "_csrf=$csrf_token" \
+    --data-urlencode "username=$XUI_USERNAME" \
+    --data-urlencode "password=$XUI_PASSWORD" \
+    --data-urlencode "_csrf=$csrf_token" \
     "http://127.0.0.1:${XUI_PORT}/login" > "$login_response"
 
   if ! grep -q '"success"[[:space:]]*:[[:space:]]*true' "$login_response"; then
     echo "3x-ui login failed:" >&2
     cat "$login_response" >&2
+    exit 1
+  fi
+
+  curl -fsS \
+    -b "$cookie_file" \
+    -H "X-CSRF-Token: $csrf_token" \
+    --data-urlencode "xraySetting@$APP_DIR/config/xui-xray-template.json" \
+    --data-urlencode "outboundTestUrl=https://www.google.com/generate_204" \
+    "http://127.0.0.1:${XUI_PORT}/panel/xray/update" > "$xray_update_response"
+
+  if ! grep -q '"success"[[:space:]]*:[[:space:]]*true' "$xray_update_response"; then
+    echo "3x-ui rejected Xray template:" >&2
+    cat "$xray_update_response" >&2
     exit 1
   fi
 

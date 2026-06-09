@@ -1,6 +1,6 @@
 # Xray VLESS Docker Compose
 
-Минимальный Xray-сервер в Docker Compose с Nginx/Caddy-прокси и управляемыми режимами VLESS REALITY, CDN/WebSocket или gRPC + TLS.
+Минимальный Xray-сервер в Docker Compose с 3x-ui как главным Xray manager и управляемыми режимами VLESS REALITY, CDN/WebSocket или gRPC + TLS через Caddy.
 
 ## Быстрый старт
 
@@ -58,12 +58,11 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 
 ## Что создается
 
-- `.env` с `SERVER_HOST`, внешним `XRAY_PORT` и UUID клиента.
-- тестовый VLESS-клиент `test@beta.local` в `config/xray.json` и в 3x-ui.
-- `config/nginx.conf` с TCP-прокси для REALITY или HTTP/WebSocket reverse proxy для CDN-режима.
+- `.env` с `SERVER_HOST`, внешним `XRAY_PORT`, UUID клиента и логином/паролем 3x-ui.
+- тестовый VLESS-клиент `test@beta.local` в 3x-ui.
 - `config/Caddyfile` для режима gRPC + TLS через Caddy.
-- `config/xray.json` с inbound VLESS REALITY на внутреннем порту `443`, VLESS WebSocket на `10000` или VLESS gRPC h2c на `10000`.
-- `config/xui-inbound.json` с payload для создания тестового inbound/client в 3x-ui через API.
+- `config/xui-inbound.json` с payload для создания рабочего inbound/client в 3x-ui через API.
+- `config/xui-xray-template.json` с Xray template для 3x-ui, включая выбранный `LOGLEVEL`.
 - `docker-compose.yml`, скопированный из шаблона выбранного режима.
 - `compose/docker-compose.mode1-tcp-reality.yml`.
 - `compose/docker-compose.mode2-xhttp-reality.yml`.
@@ -72,7 +71,7 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 - `compose/docker-compose.mode5-grpc-tls-caddy.yml`.
 - VLESS-ссылка для выбранного режима.
 - REALITY private/public keypair и short id.
-- Docker-сервисы Xray, выбранный proxy-профиль и 3x-ui.
+- Docker-сервис 3x-ui как главный Xray manager; для `MODE=5` дополнительно Caddy.
 
 ## Команды
 
@@ -85,7 +84,7 @@ docker compose down
 
 ## 3x-ui
 
-Во все варианты compose добавлен контейнер `beta-3x-ui` на образе `ghcr.io/mhsanaei/3x-ui:latest`. Установщик настраивает логин панели и создаёт тестовый inbound/client через API 3x-ui, поэтому пользователь `test@beta.local` виден в панели.
+Во все варианты compose добавлен контейнер `beta-3x-ui` на образе `ghcr.io/mhsanaei/3x-ui:latest`. 3x-ui является главным владельцем рабочего inbound: установщик настраивает логин панели, обновляет Xray template с выбранным `LOGLEVEL` и создаёт inbound/client через API 3x-ui, поэтому пользователь `test@beta.local` виден в панели и статистика считается в 3x-ui.
 
 По умолчанию панель публикуется на порту `2053`:
 
@@ -101,9 +100,9 @@ XUI_PORT=3053 ./install.sh your-domain.com --tcp
 
 Данные панели сохраняются в Docker volumes `x-ui-data` и `x-ui-cert`. Логин и пароль панели выводятся в конце установки и сохраняются в `.env` как `XUI_USERNAME` и `XUI_PASSWORD`.
 
-## Telegram alert
+## Telegram
 
-В compose добавлен контейнер `beta-reality-alert`. Он читает логи `beta-xray` и при строке вида `REALITY: processed invalid connection ... failed to read client hello` отправляет сообщение в Telegram.
+Установщик может сохранить Telegram-настройки в `.env`:
 
 Добавьте в `.env`:
 
@@ -115,15 +114,7 @@ REALITY_ALERT_COOLDOWN_SECONDS=300
 REALITY_ALERT_STARTUP_TEST_ENABLED=1
 ```
 
-`REALITY_ALERT_COOLDOWN_SECONDS=300` означает, что логи отслеживаются постоянно, но сообщение отправляется не чаще одного раза в 5 минут.
-`REALITY_ALERT_STARTUP_TEST_ENABLED=1` включает тестовое сообщение при старте alert-контейнера, например после перезапуска сервера.
-При `failed to read client hello` alert-контейнер меняет `XRAY_PORT` на случайный порт `50000-59999`, отправляет новый `vless://` в Telegram и запускает `docker compose down && docker compose up -d` в каталоге `BETA_PROJECT_DIR_HOST`.
-
-После изменения `.env` перезапустите alert-контейнер:
-
-```bash
-docker compose up -d --build reality-alert
-```
+После перевода inbound под 3x-ui отдельный `beta-reality-alert` контейнер больше не запускается.
 
 ## Режимы
 
@@ -217,12 +208,12 @@ type=ws&host=proxy.example.com&path=%2Fray&security=tls&sni=proxy.example.com
 
 VLESS + gRPC + TLS через Caddy.
 
-В этом режиме Caddy принимает публичный HTTPS на `80/443`, выпускает и продлевает TLS-сертификат для домена, затем проксирует gRPC-запросы на Xray по h2c внутри docker-сети:
+В этом режиме Caddy принимает публичный HTTPS на `80/443`, выпускает и продлевает TLS-сертификат для домена, затем проксирует gRPC-запросы на Xray внутри `beta-3x-ui` по h2c внутри docker-сети:
 
 ```text
 Caddy :443 TLS example.com
         ↓ gRPC /beta/Tun
-Xray  :10000 h2c gRPC
+3x-ui/Xray :10000 h2c gRPC
 ```
 
 По умолчанию используется service name:
@@ -259,19 +250,25 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - xray
+      - 3x-ui
 
-  xray:
-    image: ghcr.io/xtls/xray-core:latest
-    container_name: beta-xray
+  3x-ui:
+    image: ghcr.io/mhsanaei/3x-ui:latest
+    container_name: beta-3x-ui
     restart: unless-stopped
+    expose:
+      - "10000"
+    ports:
+      - "${XUI_PORT:-2053}:2053/tcp"
     volumes:
-      - ./config/xray.json:/etc/xray/config.json:ro
-    command: ["run", "-config", "/etc/xray/config.json"]
+      - x-ui-data:/etc/x-ui/
+      - x-ui-cert:/root/cert/
 
 volumes:
   caddy_data:
   caddy_config:
+  x-ui-data:
+  x-ui-cert:
 ```
 
 Сгенерированный `config/Caddyfile`:
@@ -280,7 +277,7 @@ volumes:
 example.com {
   encode zstd gzip
 
-  reverse_proxy /beta/Tun* h2c://xray:10000
+  reverse_proxy /beta/Tun* h2c://beta-3x-ui:10000
 
   respond "OK" 200
 }
@@ -316,7 +313,7 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 ./install.sh your-domain.com --tcp
 ```
 
-Nginx слушает `8443` внутри контейнера и проксирует TCP-трафик в Xray на `443`.
+Для `MODE=1/2/3` порт `XRAY_PORT` публикуется напрямую в контейнер `beta-3x-ui`, где Xray управляется панелью и слушает внутренний порт `443`.
 
 Чтобы поменять внешний порт, задайте `XRAY_PORT`:
 
@@ -363,11 +360,9 @@ FORCE_NEW_REALITY=1 ./install.sh your-domain.com --tcp
 
 ## Важно
 
-Nginx здесь работает как TCP passthrough-прокси. TLS/REALITY обрабатывает Xray, поэтому обычный HTTP reverse proxy для этого конфига не подойдет.
+Для `MODE=1/2/3/4` inbound-порт публикуется прямо из контейнера `beta-3x-ui`, а рабочий Xray управляется панелью.
 
-Для `MODE=4` наоборот используется обычный HTTP/WebSocket reverse proxy в Nginx. REALITY-параметры в клиентской ссылке не используются.
-
-Для `MODE=5` TLS завершает Caddy, а Xray получает h2c gRPC на внутреннем порту `10000`. REALITY-параметры в клиентской ссылке тоже не используются.
+Для `MODE=5` TLS завершает Caddy, а Xray внутри `beta-3x-ui` получает h2c gRPC на внутреннем порту `10000`. REALITY-параметры в клиентской ссылке не используются.
 
 ## Настройка CDN-режима через Cloudflare
 
@@ -428,7 +423,7 @@ Websites -> example.com -> SSL/TLS -> Overview -> Flexible
 
 В этом варианте клиент подключается к Cloudflare по HTTPS на `443`, а Cloudflare подключается к VPS по HTTP на `80`.
 
-Если хотите режим `Full`, понадобится добавить TLS-сертификат на origin nginx и поменять compose/nginx на HTTPS origin. В текущей конфигурации `MODE=4` рассчитан на простой HTTP origin за Cloudflare.
+Если хотите режим `Full`, понадобится добавить TLS на origin. В текущей конфигурации `MODE=4` рассчитан на простой HTTP origin за Cloudflare.
 
 ### 5. Запустите сервер в MODE=4
 

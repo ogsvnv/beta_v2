@@ -13,6 +13,7 @@ XRAY_PORT="${INPUT_XRAY_PORT:-8443}"
 XUI_PORT="${XUI_PORT:-2053}"
 VLESS_UUID="${VLESS_UUID:-}"
 VLESS_TAG="${INPUT_VLESS_TAG:-$REPO_DIR}"
+VLESS_EMAIL="${VLESS_EMAIL:-test@beta.local}"
 REALITY_SNI="${REALITY_SNI:-www.dropbox.com}"
 REALITY_DEST="${REALITY_DEST:-${REALITY_SNI}:443}"
 REALITY_FINGERPRINT="${REALITY_FINGERPRINT:-chrome}"
@@ -440,7 +441,7 @@ write_xray_config() {
         "clients": [
           {
             "id": "$VLESS_UUID",
-            "email": "default@xray.local"
+            "email": "$VLESS_EMAIL"
           }
         ],
         "decryption": "none"
@@ -509,7 +510,7 @@ EOF
         "clients": [
           {
             "id": "$VLESS_UUID",
-            "email": "default@xray.local"
+            "email": "$VLESS_EMAIL"
           }
         ],
         "decryption": "none"
@@ -586,7 +587,7 @@ EOF
           {
             "id": "$VLESS_UUID",
 $client_flow_line
-            "email": "default@xray.local"
+            "email": "$VLESS_EMAIL"
           }
         ],
         "decryption": "none"
@@ -673,6 +674,7 @@ XRAY_PORT=$XRAY_PORT
 XUI_PORT=$XUI_PORT
 VLESS_UUID=$VLESS_UUID
 VLESS_TAG=$VLESS_TAG
+VLESS_EMAIL=$VLESS_EMAIL
 REALITY_SNI=$REALITY_SNI
 REALITY_DEST=$REALITY_DEST
 REALITY_FINGERPRINT=$REALITY_FINGERPRINT
@@ -691,6 +693,32 @@ REALITY_ALERT_COOLDOWN_SECONDS=$REALITY_ALERT_COOLDOWN_SECONDS
 REALITY_ALERT_STARTUP_TEST_ENABLED=$REALITY_ALERT_STARTUP_TEST_ENABLED
 EOF
   chmod 600 "$APP_DIR/.env"
+}
+
+print_generated_files() {
+  echo
+  echo "Generated .env:"
+  echo "------------------------------"
+  cat "$APP_DIR/.env"
+
+  echo
+  echo "Generated config/xray.json:"
+  echo "------------------------------"
+  cat "$APP_DIR/config/xray.json"
+
+  if [[ -f "$APP_DIR/config/Caddyfile" && "$XRAY_MODE" == "grpc-tls" ]]; then
+    echo
+    echo "Generated config/Caddyfile:"
+    echo "------------------------------"
+    cat "$APP_DIR/config/Caddyfile"
+  elif [[ -f "$APP_DIR/config/nginx.conf" ]]; then
+    echo
+    echo "Generated config/nginx.conf:"
+    echo "------------------------------"
+    cat "$APP_DIR/config/nginx.conf"
+  fi
+
+  echo
 }
 
 build_link() {
@@ -723,6 +751,7 @@ configure_project() {
   write_xray_config
   write_compose
   write_env
+  print_generated_files
   sudo chown -R "$USER_NAME:$USER_NAME" "$APP_DIR"
 }
 
@@ -741,6 +770,10 @@ print_link() {
   build_link
   echo "VLESS link:"
   echo "$LINK"
+  echo
+  echo "Test user:"
+  echo "  email: $VLESS_EMAIL"
+  echo "  uuid:  $VLESS_UUID"
   echo
   echo "3x-ui:"
   echo "http://${SERVER_HOST}:${XUI_PORT}/panel"

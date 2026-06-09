@@ -55,6 +55,7 @@ wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bas
 ## Что создается
 
 - `.env` с `SERVER_HOST`, внешним `XRAY_PORT` и UUID клиента.
+- тестовый VLESS-клиент `test@beta.local`.
 - `config/nginx.conf` с TCP-прокси для REALITY или HTTP/WebSocket reverse proxy для CDN-режима.
 - `config/Caddyfile` для режима gRPC + TLS через Caddy.
 - `config/xray.json` с inbound VLESS REALITY на внутреннем порту `443`, VLESS WebSocket на `10000` или VLESS gRPC h2c на `10000`.

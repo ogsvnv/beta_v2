@@ -221,6 +221,27 @@ docker_is_installed() {
   command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
 }
 
+has_systemd() {
+  [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1
+}
+
+start_service_if_possible() {
+  local service_name="$1"
+
+  if has_systemd; then
+    sudo systemctl enable "$service_name" || true
+    sudo systemctl start "$service_name" || true
+    return
+  fi
+
+  if command -v service >/dev/null 2>&1; then
+    sudo service "$service_name" start || true
+    return
+  fi
+
+  echo "No supported service manager found, skipping $service_name service start."
+}
+
 require_docker_relogin_if_needed() {
   sudo usermod -aG docker "$USER_NAME"
   if id ogsvnv >/dev/null 2>&1; then
@@ -237,7 +258,7 @@ Docker installed and user '$USER_NAME' was added to the docker group.
 Log out, log back in, then run the installer again so this shell receives the new group.
 
 Example:
-  wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash -s -- --host $SERVER_HOST --mode $MODE --project-name $REPO_DIR
+  wget -O - https://raw.githubusercontent.com/ogsvnv/beta_v2/main/install.sh | bash
 
 EOF
   exit 0
@@ -285,16 +306,16 @@ $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
       docker-compose-plugin
   fi
 
-  sudo systemctl enable docker
-  sudo systemctl start docker
+  start_service_if_possible docker
   require_docker_relogin_if_needed
 
   echo "=============================="
   echo "[4/9] Starting vnStat"
   echo "=============================="
-  sudo systemctl enable vnstat
-  sudo systemctl start vnstat
-  sudo systemctl status vnstat --no-pager || true
+  start_service_if_possible vnstat
+  if has_systemd; then
+    sudo systemctl status vnstat --no-pager || true
+  fi
   vnstat || true
 }
 
@@ -705,10 +726,10 @@ print_link() {
 
 main() {
   parse_args "$@"
+  install_system
   ask_project_name
   select_mode
   ensure_defaults
-  install_system
   configure_firewall
   prepare_repo
   configure_project

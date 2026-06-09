@@ -323,16 +323,27 @@ configure_firewall() {
   echo "=============================="
   echo "[5/9] Configuring firewall"
   echo "=============================="
-  sudo ufw allow 22/tcp
-  if [[ "$XRAY_MODE" == "grpc-tls" ]]; then
-    sudo ufw allow 80/tcp
-    sudo ufw allow 443/tcp
-  else
-    sudo ufw allow "$XRAY_PORT/tcp"
+  if ! command -v ufw >/dev/null 2>&1; then
+    echo "UFW is not installed, skipping firewall configuration."
+    return
   fi
-  sudo ufw allow "$XUI_PORT/tcp"
-  sudo ufw --force enable
-  sudo ufw status verbose
+
+  sudo ufw allow 22/tcp || echo "WARN: failed to add UFW rule for 22/tcp."
+  if [[ "$XRAY_MODE" == "grpc-tls" ]]; then
+    sudo ufw allow 80/tcp || echo "WARN: failed to add UFW rule for 80/tcp."
+    sudo ufw allow 443/tcp || echo "WARN: failed to add UFW rule for 443/tcp."
+  else
+    sudo ufw allow "$XRAY_PORT/tcp" || echo "WARN: failed to add UFW rule for $XRAY_PORT/tcp."
+  fi
+  sudo ufw allow "$XUI_PORT/tcp" || echo "WARN: failed to add UFW rule for $XUI_PORT/tcp."
+
+  if ! sudo ufw --force enable; then
+    echo "WARN: UFW could not be enabled. This often happens in containers without iptables/sysctl permissions."
+    echo "WARN: Open the required ports in your VPS firewall/security group instead."
+    return
+  fi
+
+  sudo ufw status verbose || true
 }
 
 prepare_repo() {
